@@ -1,29 +1,240 @@
 ---
-title: "FinalProj"
+title: "Customer Behavior and Product Performance Analysis in Fashion E-Commerce"
+author: "GOAT & Company"
 output: html_document
 date: "2026-04-27"
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+library(tidyverse)
+library(lubridate)
+library(forcats)
 ```
 
-## R Markdown
+# Introduction
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+This project analyzes customer behavior and product performance using real-world fashion e-commerce data. The goal is to understand purchasing patterns, customer demographics, repeat purchase behavior, and product performance. These insights can help businesses improve recommendation systems, marketing strategies, and inventory decisions.
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+# Data Description
 
-```{r cars}
-summary(cars)
+The dataset used in this project is from the Kaggle competition:
+
+**H&M Personalized Fashion Recommendations**
+
+Dataset link: https://www.kaggle.com/competitions/h-and-m-personalized-fashion-recommendations/data
+
+This dataset contains real-world fashion retail data from H&M and includes:
+
+- `transactions_train.csv`: customer purchase records (date, customer_id, article_id, price)
+- `customers.csv`: demographic information such as age and membership status
+- `articles.csv`: product metadata such as product type, category, and department
+
+Due to the large size of the dataset, some analyses may be performed on a sampled subset to improve computational efficiency while preserving overall trends.
+
+# Load Data
+
+```{r load-data}
+transactions <- read_csv("transactions_train.csv")
+customers <- read_csv("customers.csv")
+articles <- read_csv("articles.csv")
 ```
 
-## Including Plots
+# Initial Data Cleaning
 
-You can also embed plots, for example:
+## Check Missing Values
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+```{r missing-values}
+colSums(is.na(transactions))
+colSums(is.na(customers))
+colSums(is.na(articles))
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+## Remove Duplicates
+
+```{r remove-duplicates}
+transactions <- transactions %>% distinct()
+customers <- customers %>% distinct()
+articles <- articles %>% distinct()
+```
+
+## Convert Datatypes
+
+```{r convert-datatypes}
+transactions <- transactions %>%
+  mutate(
+    t_dat = as.Date(t_dat),
+    customer_id = as.character(customer_id),
+    article_id = as.character(article_id)
+  )
+
+customers <- customers %>%
+  mutate(
+    customer_id = as.character(customer_id),
+    age = as.numeric(age),
+    FN = as.factor(FN),
+    Active = as.factor(Active),
+    club_member_status = as.factor(club_member_status),
+    fashion_news_frequency = as.factor(fashion_news_frequency)
+  )
+
+articles <- articles %>%
+  mutate(
+    article_id = as.character(article_id),
+    product_code = as.character(product_code),
+    product_type_no = as.factor(product_type_no),
+    department_no = as.factor(department_no),
+    index_code = as.factor(index_code),
+    index_group_no = as.factor(index_group_no),
+    section_no = as.factor(section_no),
+    garment_group_no = as.factor(garment_group_no)
+  )
+```
+
+## Handle Missing Values
+
+```{r handle-missing}
+customers <- customers %>%
+  mutate(
+    age = ifelse(is.na(age), median(age, na.rm = TRUE), age),
+    FN = fct_na_value_to_level(FN, level = "Missing"),
+    Active = fct_na_value_to_level(Active, level = "Missing"),
+    club_member_status = fct_na_value_to_level(club_member_status, level = "Missing"),
+    fashion_news_frequency = fct_na_value_to_level(fashion_news_frequency, level = "Missing")
+  )
+```
+
+## Standardize Categorical Variables
+
+```{r standardize}
+customers <- customers %>%
+  mutate(
+    club_member_status = str_to_title(str_trim(as.character(club_member_status))),
+    fashion_news_frequency = str_to_title(str_trim(as.character(fashion_news_frequency)))
+  )
+
+articles <- articles %>%
+  mutate(across(where(is.character), ~ str_squish(str_trim(.x))))
+```
+
+# Merge Datasets
+
+```{r merge}
+hm_data <- transactions %>%
+  left_join(customers, by = "customer_id") %>%
+  left_join(articles, by = "article_id")
+```
+
+# Feature Engineering
+
+## Customer Metrics
+
+```{r features}
+hm_data <- hm_data %>%
+  group_by(customer_id) %>%
+  mutate(
+    total_purchases_customer = n(),
+    first_purchase_date = min(t_dat),
+    last_purchase_date = max(t_dat),
+    recency_days = as.numeric(max(t_dat) - t_dat)
+  ) %>%
+  ungroup()
+```
+
+## Age Groups
+
+```{r age-groups}
+hm_data <- hm_data %>%
+  mutate(
+    age_group = case_when(
+      age < 20 ~ "Under 20",
+      age < 30 ~ "20-29",
+      age < 40 ~ "30-39",
+      age < 50 ~ "40-49",
+      age < 60 ~ "50-59",
+      age >= 60 ~ "60+",
+      TRUE ~ "Unknown"
+    )
+  )
+```
+
+## Loyalty Tiers
+
+```{r loyalty}
+hm_data <- hm_data %>%
+  mutate(
+    loyalty_tier = case_when(
+      total_purchases_customer == 1 ~ "One-time",
+      total_purchases_customer <= 5 ~ "Occasional",
+      total_purchases_customer <= 20 ~ "Regular",
+      TRUE ~ "Loyal"
+    )
+  )
+```
+
+# Handle Outliers
+
+```{r outliers}
+Q1 <- quantile(hm_data$price, 0.25, na.rm = TRUE)
+Q3 <- quantile(hm_data$price, 0.75, na.rm = TRUE)
+IQR_value <- Q3 - Q1
+
+hm_data_clean <- hm_data %>%
+  filter(price >= Q1 - 1.5 * IQR_value,
+         price <= Q3 + 1.5 * IQR_value)
+```
+
+# Analysis
+
+## Age Distribution
+
+```{r age-plot}
+ggplot(customers, aes(x = age)) +
+  geom_histogram(bins = 30) +
+  labs(title = "Age Distribution", x = "Age", y = "Count")
+```
+
+## Loyalty Tier Distribution
+
+```{r loyalty-plot}
+hm_data_clean %>%
+  count(loyalty_tier) %>%
+  ggplot(aes(x = loyalty_tier, y = n)) +
+  geom_col() +
+  labs(title = "Customer Loyalty Distribution", x = "Tier", y = "Customers")
+```
+
+## Top Products
+
+```{r top-products}
+hm_data_clean %>%
+  count(prod_name, sort = TRUE) %>%
+  head(10) %>%
+  ggplot(aes(x = reorder(prod_name, n), y = n)) +
+  geom_col() +
+  coord_flip() +
+  labs(title = "Top Products", x = "Product", y = "Sales")
+```
+
+## Product Velocity
+
+```{r velocity}
+item_velocity <- hm_data_clean %>%
+  group_by(article_id) %>%
+  summarise(
+    total_sales = n(),
+    days_active = as.numeric(max(t_dat) - min(t_dat)) + 1,
+    velocity = total_sales / days_active
+  )
+
+ggplot(item_velocity, aes(x = days_active, y = total_sales)) +
+  geom_point(alpha = 0.3) +
+  labs(title = "Sales vs Days Active")
+```
+
+# Conclusion
+
+This project explored customer purchasing behavior and product performance using H&M transaction data. We identified patterns in customer age distribution, loyalty levels, and product popularity.
+
+The results show that customer segmentation and product performance analysis can provide valuable insights for improving recommendation systems, marketing strategies, and inventory management in fashion e-commerce.
