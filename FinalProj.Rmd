@@ -1,7 +1,7 @@
 ---
 title: "Customer Behavior and Product Performance Analysis in Fashion E-Commerce: A Study Using H&M Transaction Data"
 author: "Tanisha Magikar, Nikhil Kumar, Bhavika Rathi, Favour Forchu"
-date: "Today"
+date: "May 04, 2026"
 output:
   html_document:
     toc: true
@@ -23,26 +23,24 @@ knitr::opts_chunk$set(
 
 ---
 
-# Research Topic
+## Research Topic
 
 **Customer Behavior and Product Performance Analysis in Fashion E-Commerce: A Study Using H&M Transaction Data**
 
 ---
 
-# Team Members
+## Team Members
 
-| Name             | Role                        |
-|------------------|-----------------------------|
-| Tanisha Magikar  | Team Member                 |
-| Nikhil Kumar     | Team Member                 |
-| Bhavika Rathi    | Team Member                 |
-| Favour Forchu    | Team Member                 |
+- Tanisha Magikar
+- Nikhil Kumar
+- Bhavika Rathi
+- Favour Forchu
 
 ---
 
-# Data Description
+## Data Description
 
-## Dataset
+### Dataset
 
 We are using the **H&M Personalized Fashion Recommendations** dataset, publicly available on Kaggle as part of a competition hosted by H&M Group.
 
@@ -55,38 +53,23 @@ The dataset contains three primary files:
 - **`customers.csv`** — Customer-level attributes including age, membership status, and postal code.
 
 ```{r load-libraries}
-# Load required libraries
-library(tidyverse)   # Data manipulation and visualization
-library(lubridate)   # Date handling
-library(scales)      # Axis formatting in plots
-library(knitr)       # Table rendering
+library(tidyverse)   
+library(lubridate)  
+library(scales)      
+library(knitr)       
 ```
 
-```{r load-data, eval=FALSE}
-# NOTE: Data files must be downloaded from Kaggle and placed in a /data subdirectory
-# Set eval=TRUE once data is available locally
+```{r load-data, eval=TRUE}
 
 transactions <- read_csv("data/transactions_train.csv")
 articles     <- read_csv("data/articles.csv")
 customers    <- read_csv("data/customers.csv")
 ```
 
-```{r mock-preview, echo=FALSE}
-# Illustrative structure — replace with real data once loaded
-transactions_mock <- tibble(
-  t_dat        = as.Date(c("2020-09-07", "2020-09-08", "2020-09-09")),
-  customer_id  = c("C001", "C002", "C001"),
-  article_id   = c("A101", "A202", "A303"),
-  price        = c(29.99, 49.95, 15.00),
-  sales_channel_id = c(2L, 1L, 2L)
-)
-
-kable(head(transactions_mock), caption = "Example: transactions_train.csv structure")
-```
 
 ---
 
-## Anticipated Data Cleaning Steps
+### Anticipated Data Cleaning Steps
 
 The following cleaning steps are planned before analysis begins:
 
@@ -106,8 +89,7 @@ The following cleaning steps are planned before analysis begins:
    - `loyalty_tier` — Bucketed customer segments (one-time, occasional, regular, loyal).
    - `sell_through_velocity` — Units sold divided by days the product was active.
 
-```{r cleaning-demo, eval=FALSE}
-# Example cleaning pipeline (illustrative — run after data is loaded)
+```{r cleaning-demo, eval=TRUE}
 
 transactions_clean <- transactions %>%
   mutate(t_dat = as.Date(t_dat)) %>%
@@ -116,10 +98,11 @@ transactions_clean <- transactions %>%
 
 customers_clean <- customers %>%
   mutate(age = as.numeric(age)) %>%
-  filter(age >= 16, age <= 100)   # Remove implausible ages
+  filter(age >= 16, age <= 100)   
 
 articles_clean <- articles %>%
   mutate(across(where(is.character), str_trim))
+glimpse(transactions_clean)
 ```
 
 ---
@@ -134,19 +117,19 @@ articles_clean <- articles %>%
 
 ---
 
-# Project Idea / Research Questions
+## Project Idea / Research Questions
 
-## What Are We Trying to Investigate?
+### What Are We Trying to Investigate?
 
 We aim to understand **how customers interact with fashion products** in an e-commerce setting — specifically looking at purchasing patterns, customer loyalty, and product performance. The four core research questions are:
 
-> **RQ1:** What items are frequently bought together? *(Cross-sell / product affinity)*
+> **RQ1:** What items are frequently bought together? 
 
 > **RQ2:** What does the age distribution of customers look like, and do different age groups buy different product types?
 
 > **RQ3:** What is the repeat purchase rate? How many customers buy once versus becoming regulars?
 
-> **RQ4:** Which items sell quickly versus sitting in inventory? *(Inventory velocity)*
+> **RQ4:** Which items sell quickly versus sitting in inventory? 
 
 ---
 
@@ -156,22 +139,28 @@ We aim to understand **how customers interact with fashion products** in an e-co
 
 We will count how often pairs of product categories appear together in the **same customer's overall purchase history**. The results will be displayed as a **co-purchase heatmap**, where both axes represent product departments and fill color encodes co-purchase frequency.
 
-```{r affinity-mockup, fig.cap="Illustrative co-purchase heatmap (placeholder data)", fig.width=7, fig.height=5}
-# Placeholder heatmap with synthetic data
-set.seed(42)
-depts  <- c("Tops", "Bottoms", "Dresses", "Outerwear", "Accessories", "Footwear")
-mat    <- matrix(sample(0:500, length(depts)^2, replace = TRUE), nrow = length(depts),
-                 dimnames = list(depts, depts))
-diag(mat) <- 0
+```{r affinity-real, fig.width=7, fig.height=5}
+tx_dept <- transactions_clean %>%
+  left_join(articles_clean %>% select(article_id, department_name),
+            by = "article_id")
+top_depts <- tx_dept %>%
+  count(department_name, sort = TRUE) %>%
+  slice_head(n = 8) %>%
+  pull(department_name)
 
-as.data.frame(as.table(mat)) %>%
-  rename(Dept1 = Var1, Dept2 = Var2, CoCount = Freq) %>%
-  ggplot(aes(x = Dept1, y = Dept2, fill = CoCount)) +
+copurchase <- tx_dept %>%
+  filter(department_name %in% top_depts) %>%
+  select(customer_id, department_name) %>%
+  distinct() %>%
+  inner_join(., ., by = "customer_id", relationship = "many-to-many") %>%
+  filter(department_name.x != department_name.y) %>%
+  count(department_name.x, department_name.y, name = "CoCount")
+
+ggplot(copurchase, aes(x = department_name.x, y = department_name.y, fill = CoCount)) +
   geom_tile(color = "white") +
-  scale_fill_gradient(low = "white", high = "#E8002D",
-                      name = "Co-purchases") +
-  labs(title    = "Product Department Co-purchase Heatmap (Illustrative)",
-       subtitle = "Higher values = more frequently bought together",
+  scale_fill_gradient(low = "white", high = "#E8002D", name = "Co-purchases") +
+  labs(title = "Product Department Co-purchase Heatmap",
+       subtitle = "How often departments appear together in a customer's history",
        x = NULL, y = NULL) +
   theme_minimal(base_size = 12) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
@@ -186,19 +175,14 @@ Customers will be binned into age groups (e.g., 16–24, 25–34, 35–49, 50–
 - A **histogram** of the overall age distribution.
 - A **heatmap** showing which product departments each age group over-indexes in (normalized purchase share).
 
-```{r age-mockup, fig.cap="Illustrative age distribution (placeholder data)", fig.width=6, fig.height=4}
-set.seed(7)
-age_data <- tibble(age = round(rnorm(5000, mean = 38, sd = 14))) %>%
-  filter(age >= 16, age <= 85)
-
-ggplot(age_data, aes(x = age)) +
+`````````{r age-real, fig.width=6, fig.height=4}
+ggplot(customers_clean, aes(x = age)) +
   geom_histogram(binwidth = 5, fill = "#E8002D", color = "white", alpha = 0.85) +
   scale_x_continuous(breaks = seq(15, 85, 10)) +
-  labs(title    = "Customer Age Distribution (Illustrative)",
-       subtitle = "Placeholder — will be replaced with real H&M data",
+  labs(title = "Customer Age Distribution",
        x = "Age", y = "Number of Customers") +
   theme_minimal(base_size = 12)
-```
+`````````
 
 ---
 
@@ -215,64 +199,95 @@ Customers will be classified into **loyalty tiers** based on total transaction c
 
 Side-by-side bar charts will compare the **share of customers** vs. **share of revenue** per tier — to show whether loyal customers are disproportionately valuable.
 
-```{r loyalty-mockup, fig.cap="Illustrative loyalty tier breakdown (placeholder)", fig.width=7, fig.height=4}
-loyalty_mock <- tibble(
-  Tier            = factor(c("One-time", "Occasional", "Regular", "Loyal"),
-                           levels = c("One-time", "Occasional", "Regular", "Loyal")),
-  Pct_Customers   = c(48, 30, 15, 7),
-  Pct_Revenue     = c(18, 28, 30, 24)
-) %>%
+```{r loyalty-real, fig.width=7, fig.height=4}
+loyalty_real <- transactions_clean %>%
+  count(customer_id, name = "n_purchases") %>%
+  mutate(Tier = case_when(
+    n_purchases == 1  ~ "One-time",
+    n_purchases <= 5  ~ "Occasional",
+    n_purchases <= 15 ~ "Regular",
+    TRUE              ~ "Loyal"
+  ))
+
+tier_revenue <- transactions_clean %>%
+  left_join(loyalty_real, by = "customer_id") %>%
+  group_by(Tier) %>%
+  summarise(total_revenue = sum(price, na.rm = TRUE))
+
+tier_summary <- loyalty_real %>%
+  count(Tier, name = "n_customers") %>%
+  left_join(tier_revenue, by = "Tier") %>%
+  mutate(
+    Pct_Customers = n_customers / sum(n_customers) * 100,
+    Pct_Revenue   = total_revenue / sum(total_revenue) * 100,
+    Tier = factor(Tier, levels = c("One-time","Occasional","Regular","Loyal"))
+  ) %>%
   pivot_longer(cols = c(Pct_Customers, Pct_Revenue),
-               names_to  = "Metric",
-               values_to = "Percentage") %>%
+               names_to = "Metric", values_to = "Percentage") %>%
   mutate(Metric = recode(Metric,
                          "Pct_Customers" = "% of Customers",
                          "Pct_Revenue"   = "% of Revenue"))
 
-ggplot(loyalty_mock, aes(x = Tier, y = Percentage, fill = Metric)) +
+ggplot(tier_summary, aes(x = Tier, y = Percentage, fill = Metric)) +
   geom_col(position = "dodge", width = 0.65, alpha = 0.88) +
   scale_fill_manual(values = c("% of Customers" = "#E8002D",
-                                "% of Revenue"   = "#222222")) +
-  labs(title    = "Customer Loyalty Tiers: Share of Customers vs. Revenue (Illustrative)",
-       subtitle = "Placeholder — will be replaced with real H&M data",
+                               "% of Revenue"   = "#222222")) +
+  labs(title = "Customer Loyalty Tiers: Share of Customers vs. Revenue",
        x = NULL, y = "Percentage (%)", fill = NULL) +
   theme_minimal(base_size = 12) +
   theme(legend.position = "top")
 ```
 
+
 ---
 
 ### RQ4 — Inventory Velocity (Fast vs. Slow-moving Products)
 
-For each product, we will compute a **sell-through velocity** = units sold / days active in the dataset. A **scatter plot** of units sold (y-axis) vs. days active (x-axis), colored by product category, will reveal fast-moving vs. stagnant inventory.
+For each product, we will compute a **sell-through velocity** = units sold / days active in the dataset. A **box plot** of units sold (y-axis) vs. days active (x-axis), colored by product category, will reveal fast-moving vs. stagnant inventory.
 
-```{r velocity-mockup, fig.cap="Illustrative sell-through velocity scatter plot (placeholder)", fig.width=7, fig.height=5}
-set.seed(99)
-n     <- 200
-cats  <- c("Tops", "Bottoms", "Dresses", "Outerwear", "Accessories")
-vel_mock <- tibble(
-  days_active   = sample(1:365, n, replace = TRUE),
-  units_sold    = pmax(1, round(runif(n, 1, 500) - days_active * 0.3 + rnorm(n, 50, 30))),
-  category      = sample(cats, n, replace = TRUE)
-)
+```{r velocity-real, fig.width=7, fig.height=5}
+velocity <- transactions_clean %>%
+  group_by(article_id) %>%
+  summarise(
+    units_sold  = n(),
+    days_active = as.numeric(max(t_dat) - min(t_dat)) + 1,
+    velocity    = units_sold / days_active
+  ) %>%
+  left_join(articles_clean %>% select(article_id, product_group_name),
+            by = "article_id") %>%
+  filter(!is.na(product_group_name), days_active > 1)
 
-ggplot(vel_mock, aes(x = days_active, y = units_sold, color = category)) +
-  geom_point(alpha = 0.65, size = 2.2) +
-  scale_color_brewer(palette = "Set1") +
-  labs(title    = "Product Sell-Through Velocity (Illustrative)",
-       subtitle = "Placeholder — will be replaced with real H&M data",
-       x = "Days Active in Dataset",
-       y = "Total Units Sold",
-       color = "Category") +
-  theme_minimal(base_size = 12)
+top_groups <- velocity %>%
+  count(product_group_name, sort = TRUE) %>%
+  slice_head(n = 5) %>%
+  pull(product_group_name)
+
+velocity %>%
+  filter(product_group_name %in% top_groups) %>%
+  mutate(product_group_name = recode(product_group_name,
+                                     "Underwear" = "Inner Wear")) %>%
+  ggplot(aes(x = reorder(product_group_name, velocity, median),
+             y = velocity, fill = product_group_name)) +
+  geom_boxplot(outlier.shape = NA) +
+  coord_flip() +
+  scale_y_continuous(limits = quantile(
+    velocity$velocity[velocity$product_group_name %in% top_groups],
+    c(0.01, 0.95), na.rm = TRUE)) +
+  scale_fill_brewer(palette = "Set1") +
+  labs(title    = "Sell-Through Velocity by Product Group",
+       subtitle = "Units sold per day active — higher = faster moving",
+       x = NULL,
+       y = "Units Sold per Day",
+       fill = NULL) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "none")
 ```
 
 ---
 
-# Summary
+## Summary
 
 This project investigates customer behavior and product performance in fashion e-commerce using H&M's transaction data. Our four research questions span cross-selling strategy, demographic segmentation, customer loyalty, and inventory management. All analysis will be conducted in **R** using `tidyverse` and `ggplot2`, and delivered as a fully reproducible R Markdown report.
 
 ---
 
-*Report prepared for STAT / DS Course — Spring 2026*
