@@ -91,18 +91,85 @@ The following cleaning steps are planned before analysis begins:
 
 ```{r cleaning-demo, eval=TRUE}
 
+
+colSums(is.na(transactions))
+colSums(is.na(customers))
+colSums(is.na(articles))
+
+# Clean transactions
 transactions_clean <- transactions %>%
-  mutate(t_dat = as.Date(t_dat)) %>%
+  mutate(
+    t_dat = as.Date(t_dat),
+    customer_id = as.character(customer_id),
+    article_id = as.character(article_id)
+  ) %>%
   distinct() %>%
-  filter(!is.na(customer_id), !is.na(article_id))
+  filter(
+    !is.na(customer_id),
+    !is.na(article_id),
+    !is.na(t_dat),
+    !is.na(price)
+  )
 
+# Clean customers
 customers_clean <- customers %>%
-  mutate(age = as.numeric(age)) %>%
-  filter(age >= 16, age <= 100)   
+  mutate(
+    customer_id = as.character(customer_id),
+    age = as.numeric(age)
+  ) %>%
+  distinct() %>%
+  filter(is.na(age) | between(age, 16, 100))
 
+# Clean articles
 articles_clean <- articles %>%
-  mutate(across(where(is.character), str_trim))
-glimpse(transactions_clean)
+  mutate(
+    article_id = as.character(article_id),
+    across(where(is.character), str_trim)
+  ) %>%
+  distinct()
+
+# Merge cleaned datasets
+clean_data <- transactions_clean %>%
+  left_join(customers_clean, by = "customer_id") %>%
+  left_join(articles_clean, by = "article_id")
+
+# Customer-level feature engineering
+reference_date <- max(clean_data$t_dat, na.rm = TRUE)
+
+customer_features <- clean_data %>%
+  group_by(customer_id) %>%
+  summarise(
+    total_purchases_per_customer = n(),
+    recency = as.numeric(reference_date - max(t_dat, na.rm = TRUE)),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    loyalty_tier = case_when(
+      total_purchases_per_customer == 1 ~ "one-time",
+      total_purchases_per_customer <= 5 ~ "occasional",
+      total_purchases_per_customer <= 20 ~ "regular",
+      TRUE ~ "loyal"
+    )
+  )
+
+# Product-level feature engineering
+article_features <- clean_data %>%
+  group_by(article_id) %>%
+  summarise(
+    total_units_sold = n(),
+    first_sale_date = min(t_dat, na.rm = TRUE),
+    last_sale_date = max(t_dat, na.rm = TRUE),
+    active_days = as.numeric(last_sale_date - first_sale_date) + 1,
+    .groups = "drop"
+  ) %>%
+  mutate(
+    sell_through_velocity = total_units_sold / active_days
+  )
+
+# Do NOT join features back into full clean_data because it is too large
+glimpse(clean_data)
+glimpse(customer_features)
+glimpse(article_features)
 ```
 
 ---
@@ -168,12 +235,12 @@ ggplot(copurchase, aes(x = department_name.x, y = department_name.y, fill = CoCo
 
 ---
 
-### RQ2 — Age Distribution and Product Preferences
+### RQ2 — Age Distribution
 
 Customers will be binned into age groups (e.g., 16–24, 25–34, 35–49, 50–64, 65+). We will use:
 
-- A **histogram** of the overall age distribution.
-- A **heatmap** showing which product departments each age group over-indexes in (normalized purchase share).
+- A **histogram** of the overall age distribution to see which age group buys the most products.
+
 
 `````````{r age-real, fig.width=6, fig.height=4}
 ggplot(customers_clean, aes(x = age)) +
@@ -183,6 +250,7 @@ ggplot(customers_clean, aes(x = age)) +
        x = "Age", y = "Number of Customers") +
   theme_minimal(base_size = 12)
 `````````
+
 
 ---
 
@@ -273,7 +341,13 @@ velocity %>%
   scale_y_continuous(limits = quantile(
     velocity$velocity[velocity$product_group_name %in% top_groups],
     c(0.01, 0.95), na.rm = TRUE)) +
-  scale_fill_brewer(palette = "Set1") +
+  scale_fill_manual(values = c(
+  "#FAD4D8",
+  "#F5A3AD",
+  "#EF6B7A",
+  "#E8002D",
+  "#A60021"
+)) +
   labs(title    = "Sell-Through Velocity by Product Group",
        subtitle = "Units sold per day active — higher = faster moving",
        x = NULL,
