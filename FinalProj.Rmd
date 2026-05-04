@@ -2,15 +2,7 @@
 title: "Customer Behavior and Product Performance Analysis in Fashion E-Commerce: A Study Using H&M Transaction Data"
 author: "Tanisha Magikar, Nikhil Kumar, Bhavika Rathi, Favour Forchu"
 date: "May 04, 2026"
-output:
-  html_document:
-    toc: true
-    toc_float: true
-    theme: flatly
-    highlight: tango
-    number_sections: true
-  word_document:
-    toc: true
+output: github_document
 ---
 
 ```{r setup, include=FALSE}
@@ -21,13 +13,11 @@ knitr::opts_chunk$set(
 )
 ```
 
----
-
 ## Research Topic
 
 **Customer Behavior and Product Performance Analysis in Fashion E-Commerce: A Study Using H&M Transaction Data**
 
----
+***
 
 ## Team Members
 
@@ -35,8 +25,6 @@ knitr::opts_chunk$set(
 - Nikhil Kumar
 - Bhavika Rathi
 - Favour Forchu
-
----
 
 ## Data Description
 
@@ -61,13 +49,13 @@ library(knitr)
 
 ```{r load-data, eval=TRUE}
 
-transactions <- read_csv("data/transactions_train.csv")
-articles     <- read_csv("data/articles.csv")
-customers    <- read_csv("data/customers.csv")
+transactions <- read_csv("data/transactions_train.csv", show_col_types = FALSE)
+articles     <- read_csv("data/articles.csv", show_col_types = FALSE)
+customers    <- read_csv("data/customers.csv", show_col_types = FALSE)
 ```
 
 
----
+***
 
 ### Anticipated Data Cleaning Steps
 
@@ -128,15 +116,10 @@ articles_clean <- articles %>%
   ) %>%
   distinct()
 
-# Merge cleaned datasets
-clean_data <- transactions_clean %>%
-  left_join(customers_clean, by = "customer_id") %>%
-  left_join(articles_clean, by = "article_id")
-
 # Customer-level feature engineering
-reference_date <- max(clean_data$t_dat, na.rm = TRUE)
+reference_date <- max(transactions_clean$t_dat, na.rm = TRUE)
 
-customer_features <- clean_data %>%
+customer_features <- transactions_clean %>%
   group_by(customer_id) %>%
   summarise(
     total_purchases_per_customer = n(),
@@ -153,7 +136,7 @@ customer_features <- clean_data %>%
   )
 
 # Product-level feature engineering
-article_features <- clean_data %>%
+article_features <- transactions_clean %>%
   group_by(article_id) %>%
   summarise(
     total_units_sold = n(),
@@ -166,13 +149,12 @@ article_features <- clean_data %>%
     sell_through_velocity = total_units_sold / active_days
   )
 
-# Do NOT join features back into full clean_data because it is too large
-glimpse(clean_data)
+# Avoid building one giant joined table in memory for the full transaction history
 glimpse(customer_features)
 glimpse(article_features)
 ```
 
----
+***
 
 ## Basic / Marginal Summaries Planned
 
@@ -182,7 +164,7 @@ glimpse(article_features)
 - Summary statistics for `price` (mean, median, IQR)
 - Count of unique customers vs. unique articles purchased
 
----
+***
 
 ## Project Idea / Research Questions
 
@@ -198,7 +180,12 @@ We aim to understand **how customers interact with fashion products** in an e-co
 
 > **RQ4:** Which items sell quickly versus sitting in inventory? 
 
----
+***
+## Main Skepticism and limitations
+
+This analysis is limited by the structure of the dataset. The data we get is only the completed transactions and we have no ability to capture the browsing, abandoned carts, or untapped demand. Also, the lack of missing or incomplete demographic data (e.g., age) can also bias the outcomes of customer segmentation.
+
+The sell-through velocity measure is also an approximation, as actual inventory status and inventory availability is not given. Consequently, certain products might not seem to move swiftly merely because of low supply and not low demand.
 
 ## Analyses and Visualizations
 
@@ -219,9 +206,19 @@ copurchase <- tx_dept %>%
   filter(department_name %in% top_depts) %>%
   select(customer_id, department_name) %>%
   distinct() %>%
-  inner_join(., ., by = "customer_id", relationship = "many-to-many") %>%
-  filter(department_name.x != department_name.y) %>%
-  count(department_name.x, department_name.y, name = "CoCount")
+  mutate(value = 1L)
+
+co_matrix <- xtabs(value ~ customer_id + department_name, data = copurchase)
+co_counts <- as.matrix(t(co_matrix) %*% co_matrix)
+diag(co_counts) <- 0
+
+copurchase <- as_tibble(as.data.frame(as.table(co_counts))) %>%
+  rename(
+    department_name.x = department_name,
+    department_name.y = department_name.1,
+    CoCount = Freq
+  ) %>%
+  filter(CoCount > 0)
 
 ggplot(copurchase, aes(x = department_name.x, y = department_name.y, fill = CoCount)) +
   geom_tile(color = "white") +
@@ -233,7 +230,7 @@ ggplot(copurchase, aes(x = department_name.x, y = department_name.y, fill = CoCo
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
----
+***
 
 ### RQ2 — Age Distribution
 
@@ -242,17 +239,18 @@ Customers will be binned into age groups (e.g., 16–24, 25–34, 35–49, 50–
 - A **histogram** of the overall age distribution to see which age group buys the most products.
 
 
-`````````{r age-real, fig.width=6, fig.height=4}
+
+```{r age-real, fig.width=6, fig.height=4}
 ggplot(customers_clean, aes(x = age)) +
   geom_histogram(binwidth = 5, fill = "#E8002D", color = "white", alpha = 0.85) +
   scale_x_continuous(breaks = seq(15, 85, 10)) +
   labs(title = "Customer Age Distribution",
        x = "Age", y = "Number of Customers") +
   theme_minimal(base_size = 12)
-`````````
+```
 
 
----
+***
 
 ### RQ3 — Repeat Purchase Rate / Loyalty Tiers
 
@@ -359,9 +357,12 @@ velocity %>%
 
 ---
 
-## Summary
+## Conclusions
 
-This project investigates customer behavior and product performance in fashion e-commerce using H&M's transaction data. Our four research questions span cross-selling strategy, demographic segmentation, customer loyalty, and inventory management. All analysis will be conducted in **R** using `tidyverse` and `ggplot2`, and delivered as a fully reproducible R Markdown report.
+This project examined the behavior of customers and the performance of products in a fashion e-commerce environment using the H&M transaction data. The analysis shows that the purchasing patterns differ across the type of product and group of customers and that some of the departments are often co-occurring in the purchase history of the customer.
+
+We also see that customer loyalty is a major aspect, with a small number of repeat customers providing a considerable portion of the total revenue. Also, different products have varying velocity, which implies that demand varies among the categories.
+
+Such results can be used to shape marketing efforts, targeting customers and inventory choices. The next generation of work might include some extra data like browsing history or stock level to have a more in-depth picture of customer intent and product performance.
 
 ---
-
